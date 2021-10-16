@@ -10,6 +10,7 @@ import hashlib
 import hmac
 import time
 import urllib
+from dataclasses import dataclass
 from enum import Enum
 from typing import List, Optional, Union
 
@@ -275,6 +276,7 @@ class PrivateRestApi(RestApi):
         return await super().post(path, data=data, headers=headers, **kwargs)
 
 
+@dataclass
 class Header:
     API_KEY = "API-KEY"
     API_SIGN = "API-Sign"

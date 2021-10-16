@@ -1,15 +1,20 @@
 import unittest
+from unittest.mock import AsyncMock
 
-from kraken_async_api import PublicWebSocketApi
+from kraken_async_api.websocket import PublicWebSocketApi
 
 
 class TestPublicWebsocket(unittest.IsolatedAsyncioTestCase):
 
-    def asyncSetUp(self) -> None:
+    async def asyncSetUp(self) -> None:
+        self.mock = AsyncMock()
         self.under_test = PublicWebSocketApi()
+        self.under_test.send = self.mock
 
     async def test_subscribe_to_ticker(self):
-        assert False
+        await self.under_test.subscribe_to_ticker(["XBTGBP", "XBTUSD"])
+
+        print(self.mock.call_args_list)
 
     async def test_unsubscribe_from_ticker(self):
         assert False
