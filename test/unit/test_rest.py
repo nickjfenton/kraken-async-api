@@ -3,7 +3,8 @@ from unittest.mock import AsyncMock, Mock, patch
 
 from aiohttp import ClientSession
 
-from kraken_async_api.rest import PublicRestApi, AssetClass, PrivateRestApi
+from kraken_async_api.rest import PublicRestApi, PrivateRestApi
+from kraken_async_api.constants import AssetClass, InfoType
 
 
 class TestPublicRestApi(unittest.IsolatedAsyncioTestCase):
@@ -73,6 +74,20 @@ class TestPublicRestApi(unittest.IsolatedAsyncioTestCase):
 
         self.verify_get_call(
             "https://api.kraken.com/0/public/AssetPairs?info=info&pair=XXBTZGBP,XXBTZUSD"
+        )
+
+    async def test_get_asset_pairs_at_given_info_level(self):
+        await self.under_test.get_asset_pairs(["XXBTZGBP"], InfoType.FEES)
+
+        self.verify_get_call(
+            "https://api.kraken.com/0/public/AssetPairs?info=fees&pair=XXBTZGBP"
+        )
+
+    async def test_get_asset_pairs_at_given_string_info_level(self):
+        await self.under_test.get_asset_pairs(["XXBTZGBP"], "foo")
+
+        self.verify_get_call(
+            "https://api.kraken.com/0/public/AssetPairs?info=foo&pair=XXBTZGBP"
         )
 
     async def test_get_ticker_information_for_a_given_asset_pair(self):

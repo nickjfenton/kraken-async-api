@@ -1,14 +1,14 @@
-import asyncio
+import json
 import time
-from abc import ABC, abstractmethod
+from abc import ABC
+from asyncio import Task
 from dataclasses import dataclass
 from enum import Enum
-from typing import Callable, Optional, List, Coroutine, Any, Dict, TypeVar
+from typing import Callable, Optional, List, Coroutine, Any, Dict, TypeVar, Union
 
-from websockets.legacy.client import WebSocketClientProtocol, connect
+from websockets.legacy.client import WebSocketClientProtocol
 
-from kraken_async_api.config import Config
-from kraken_async_api.util import no_op
+from kraken_async_api.constants import Interval, Depth
 
 
 class Event(Enum):
@@ -54,16 +54,10 @@ class PrivateSubscription(Subscription):
 
 class _WebSocketApi(ABC):
 
-    def __init__(self, callback: Optional[Callable[[str], Any]] = None,
-                 config: Optional[Config] = None):
-        self.config = config or Config()
-        self.socket: Optional[WebSocketClientProtocol] = None
-        self.callback: Callable = callback or no_op
-
-    @property
-    @abstractmethod
-    def _url(self) -> str:
-        """The websockets URL to use"""
+    def __init__(self, async_callback: Callable[[str], Coroutine], socket: WebSocketClientProtocol):
+        self.socket: WebSocketClientProtocol = socket
+        self.async_callback: Callable = async_callback
+        self.listening: Optional[Task] = None
 
     async def send(self, payload: dict):
         """
@@ -73,25 +67,12 @@ class _WebSocketApi(ABC):
 
         :param payload: A dictionary of data to send to the endpoint
         """
-        socket = await self._get_connected_websocket()
+        await self.socket.send(json.dumps(payload))
 
-        await socket.send(payload)
-
-    async def _send_message(self, event, payload: Optional[Dict] = None):
-        if payload is None:
-            payload = {}
-        payload.update({"event": event})
-        await self.send(payload)
-
-    async def send_ping(self, req_id: Optional[int]):
-        if req_id is not None:
-            await self._send_message(Event.PING, {"reqid": req_id})
-        else:
-            await self._send_message(Event.PING)
-
-    async def send_subscription(self, event, name: SubscriptionType, pair: List[str] = None,
-                                **kwargs):
+    async def _send_subscription(self, event, name: SubscriptionType, pair: List[str] = None,
+                                 **kwargs):
         payload: Dict[str, Any] = {
+            "event": event.value,
             "subscription": {
                 "name": name.value,
                 **kwargs
@@ -101,39 +82,21 @@ class _WebSocketApi(ABC):
         if pair is not None:
             payload.update({"pair": pair})
 
-        await self._send_message(event, payload)
-
-    async def _get_connected_websocket(self) -> WebSocketClientProtocol:
-        if self.socket is None:
-            self.socket = await connect(self._url)
-            asyncio.create_task(self._listen())
-        return self.socket
+        await self.send(payload)
 
     async def _listen(self):
         while True:
-            response = await self.socket.recv()
-            self.callback(response)
+            message = await self.socket.recv()
+            await self.async_callback(message)
 
     async def subscribe(self, name: SubscriptionType, pair: List[str] = None, **kwargs):
-        await self.send_subscription(Event.SUBSCRIBE, name, pair, **kwargs)
+        await self._send_subscription(Event.SUBSCRIBE, name, pair, **kwargs)
 
-    async def unsubscribe(self, name: Subscription, pair: List[str] = None, **kwargs):
-        await self.send_subscription(Event.UNSUBSCRIBE, name, pair, **kwargs)
+    async def unsubscribe(self, name: SubscriptionType, pair: List[str] = None, **kwargs):
+        await self._send_subscription(Event.UNSUBSCRIBE, name, pair, **kwargs)
 
 
 class PublicWebSocketApi(_WebSocketApi):
-
-    @property
-    def _url(self) -> str:
-        return self.config.public_websocket_url
-
-    async def subscribe(self, name: PublicSubscription, pair: List[str] = None, **kwargs):
-        """
-        Send a subscription event to the websocket.
-
-        Prefer subscribe_to_* methods.
-        """
-        await super().subscribe(name, pair, **kwargs)
 
     async def subscribe_to_ticker(self, pair: List[str]):
         """Subscribe to ticker information on currency pair."""
@@ -143,15 +106,37 @@ class PublicWebSocketApi(_WebSocketApi):
         """Unsubscribe from ticker information on currency pair."""
         await self.unsubscribe(PublicSubscription.TICKER, pair)
 
-    async def subscribe_to_book(self, pair: List[str]):
+    async def subscribe_to_book(self, pair: List[str], depth: Union[Depth, int] = Depth.D10):
         """Subscribe to order book levels. On subscription,
         a snapshot will be published at the specified depth.
         Following the snapshot, level updates will be published"""
-        await self.subscribe(PublicSubscription.BOOK, pair)
+        if isinstance(depth, Depth):
+            depth = depth.value
+        await self.subscribe(PublicSubscription.BOOK, pair, depth=depth)
 
-    async def unsubscribe_from_book(self, pair: List[str]):
+    async def unsubscribe_from_book(self, pair: List[str], depth: Union[Depth, int] = Depth.D10):
         """Unsubscribe from order book levels."""
-        await self.unsubscribe(PublicSubscription.BOOK, pair)
+        if isinstance(depth, Depth):
+            depth = depth.value
+        await self.unsubscribe(PublicSubscription.BOOK, pair, depth=depth)
+
+    async def subscribe_to_ohlc(self, pair: List[str], interval: Interval):
+        await self.subscribe(PublicSubscription.OHLC, pair, interval=interval.value)
+
+    async def unsubscribe_from_ohlc(self, pair: List[str], interval: Interval):
+        await self.unsubscribe(PublicSubscription.OHLC, pair, interval=interval.value)
+
+    async def subscribe_to_trades(self, pair: List[str]):
+        await self.subscribe(PublicSubscription.TRADE, pair)
+
+    async def unsubscribe_from_trades(self, pair: List[str]):
+        await self.unsubscribe(PublicSubscription.TRADE, pair)
+
+    async def subscribe_to_spread(self, pair: List[str]):
+        await self.subscribe(PublicSubscription.SPREAD, pair)
+
+    async def unsubscribe_from_spread(self, pair: List[str]):
+        await self.unsubscribe(PublicSubscription.SPREAD, pair)
 
 
 @dataclass
@@ -160,7 +145,7 @@ class _WsToken:
     A kraken websocket authorisation token.
     This consists of the token itself, and its expiry time in seconds since Epoch
     """
-    token: str
+    data: str
     expiry_time: Optional[int]
 
 
@@ -170,24 +155,26 @@ class PrivateWebSocketApi(_WebSocketApi):
     """
 
     def __init__(self, get_websocket_token: Callable,
-                 callback: Optional[Callable[[str], Any]] = None,
-                 config: Optional[Config] = None):
-        super().__init__(callback, config)
+                 async_callback: Callable[[str], Coroutine],
+                 socket: WebSocketClientProtocol):
+        super().__init__(async_callback, socket)
         self._ws_token: Optional[_WsToken] = None
         self._get_ws_token: Callable[[], Coroutine] = get_websocket_token
 
-    @property
-    def _url(self) -> str:
-        return self.config.private_websocket_url
-
     async def get_ws_token(self):
         if self._ws_token is None or self._ws_token.expiry_time > int(time.time()):
-            self._ws_token = await self._get_ws_token()
+            token_data = json.loads(await self._get_ws_token())
+            if len(token_data["error"]) != 0:
+                raise ConnectionError("Token could not be fetched. Please verify your api-key and"
+                                      f" api-sec. {' '.join(token_data['error'])}")
+            # Slightly reduce expiry time to account for clock sync, latency etc.
+            self._ws_token = _WsToken(token_data["result"]["token"],
+                                      token_data["result"]["expires"] * 0.9)
         return self._ws_token
 
     async def subscribe(self, name: PrivateSubscription, pair: List[str] = None, **kwargs):
         token = await self.get_ws_token()
-        await super().subscribe(name, pair, token=token, **kwargs)
+        await super().subscribe(name, pair, token=token.data, **kwargs)
 
     async def unsubscribe(self, name: PrivateSubscription, pair: List[str] = None, **kwargs):
         token = await self.get_ws_token()
