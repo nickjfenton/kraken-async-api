@@ -6,6 +6,7 @@ from unittest.mock import AsyncMock
 
 from websockets.legacy.client import WebSocketClientProtocol
 
+from kraken_async_api import PrivateWebSocketApi
 from kraken_async_api.constants import Interval, Depth
 from kraken_async_api.websocket import PublicWebSocketApi
 
@@ -23,7 +24,7 @@ class TestPublicWebsocket(unittest.IsolatedAsyncioTestCase):
 
     def assert_correct_payload(self, expected_payload):
         actual_payload = self.mock_send.call_args[0][0]
-        assert expected_payload == json.loads(actual_payload)
+        self.assertDictEqual(expected_payload, json.loads(actual_payload))
 
     async def test_subscribe_to_ticker(self):
         await self.under_test.subscribe_to_ticker(["XBTGBP", "XBTUSD"])
@@ -217,3 +218,121 @@ class TestPublicWebsocket(unittest.IsolatedAsyncioTestCase):
         second_callback.assert_awaited_once_with("2")
 
 
+class TestPrivateWebsocket(unittest.IsolatedAsyncioTestCase):
+
+    async def asyncSetUp(self) -> None:
+        self.mock_send = AsyncMock()
+        self.callback = AsyncMock()
+
+        self.socket = AsyncMock(WebSocketClientProtocol)
+        self.socket.send = self.mock_send
+
+        self.get_ws_token = AsyncMock()
+        self.get_ws_token.return_value = json.dumps({
+            "result": {"token": "fakeToken", "expires": 900},
+            "error": []
+        })
+
+        self.under_test = PrivateWebSocketApi(self.get_ws_token, self.callback, self.socket)
+
+    def assert_correct_payload(self, expected_payload):
+        actual_payload = self.mock_send.call_args[0][0]
+        self.assertDictEqual(expected_payload, json.loads(actual_payload))
+
+    async def test_subscribe_to_own_trades(self):
+        await self.under_test.subscribe_to_own_trades()
+
+        self.assert_correct_payload({
+            "event": "subscribe",
+            "subscription": {
+                "name": "ownTrades",
+                "token": "fakeToken"
+            }
+        })
+
+    async def test_unsubscribe_from_own_trades(self):
+        await self.under_test.unsubscribe_from_own_trades()
+
+        self.assert_correct_payload({
+            "event": "unsubscribe",
+            "subscription": {
+                "name": "ownTrades",
+                "token": "fakeToken"
+            }
+        })
+
+    async def test_subscribe_to_open_orders(self):
+        await self.under_test.subscribe_to_open_orders()
+
+        self.assert_correct_payload({
+            "event": "subscribe",
+            "subscription": {
+                "name": "openOrders",
+                "token": "fakeToken"
+            }
+        })
+
+    async def test_unsubscribe_from_open_orders(self):
+        await self.under_test.unsubscribe_from_open_orders()
+
+        self.assert_correct_payload({
+            "event": "unsubscribe",
+            "subscription": {
+                "name": "openOrders",
+                "token": "fakeToken"
+            }
+        })
+
+    async def test_add_order(self):
+        await self.under_test.add_order(order_type="foo", pair="bar", price="baz", side="buy",
+                                        volume="1")
+
+        self.assert_correct_payload({
+            "event": "addOrder",
+            "ordertype": "foo",
+            "pair": "bar",
+            "price": "baz",
+            "type": "buy",
+            "volume": "1",
+            "token": "fakeToken"
+        })
+
+    async def test_cancel_order(self):
+        await self.under_test.cancel_order(["A"])
+
+        self.assert_correct_payload({
+            "event": "cancelOrder",
+            "token": "fakeToken",
+            "txid": [
+                "A"
+            ]
+        })
+
+    async def test_cancel_all(self):
+        await self.under_test.cancel_all()
+
+        self.assert_correct_payload({
+            "event": "cancelAll",
+            "token": "fakeToken"
+        })
+
+    async def test_cancel_all_orders_after(self):
+        await self.under_test.cancel_all_orders_after(30)
+
+        self.assert_correct_payload({
+            "event": "cancelAllOrdersAfter",
+            "token": "fakeToken",
+            "timeout": 30
+        })
+
+    async def test_failing_to_get_token_raises_a_connection_error(self):
+        self.get_ws_token.return_value = json.dumps({
+            "result": {},
+            "error": ["failed to get token!", "boo hoo"]
+        })
+
+        expected_msg = "Token could not be fetched. Please verify your api-key and api-sec. " \
+                       "failed to get token! boo hoo"
+
+        with self.assertRaisesRegex(ConnectionError, expected_msg):
+            await self.under_test.get_ws_token()

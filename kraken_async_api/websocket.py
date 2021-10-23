@@ -121,21 +121,43 @@ class PublicWebSocketApi(_WebSocketApi):
         await self.unsubscribe(PublicSubscription.BOOK, pair, depth=depth)
 
     async def subscribe_to_ohlc(self, pair: List[str], interval: Interval):
+        """
+        When subscribed for OHLC, a snapshot of the last valid candle (irrespective of the
+        endtime) will be sent, followed by updates to the running candle. For example,
+        if a subscription is made to 1 min candle and there have been no trades for 5 mins,
+        a snapshot of the last 1 min candle from 5 mins ago will be published. The endtime can be
+        used to determine that it is an old candle.
+        """
         await self.subscribe(PublicSubscription.OHLC, pair, interval=interval.value)
 
     async def unsubscribe_from_ohlc(self, pair: List[str], interval: Interval):
+        """
+        Unsubscribe from OHLC for the given list of pairs.
+        """
         await self.unsubscribe(PublicSubscription.OHLC, pair, interval=interval.value)
 
     async def subscribe_to_trades(self, pair: List[str]):
+        """
+        Trade feed for a currency pair
+        """
         await self.subscribe(PublicSubscription.TRADE, pair)
 
     async def unsubscribe_from_trades(self, pair: List[str]):
+        """
+        Unsusbcribe from the trade feed for the given list of pairs
+        """
         await self.unsubscribe(PublicSubscription.TRADE, pair)
 
     async def subscribe_to_spread(self, pair: List[str]):
+        """
+        Spread feed for a given list of currency pairs
+        """
         await self.subscribe(PublicSubscription.SPREAD, pair)
 
     async def unsubscribe_from_spread(self, pair: List[str]):
+        """
+        Unsubscribe from spread feed for a given list of currency pairs
+        """
         await self.unsubscribe(PublicSubscription.SPREAD, pair)
 
 
@@ -154,7 +176,7 @@ class PrivateWebSocketApi(_WebSocketApi):
     :class:`PrivateWebSocketApi` handles Kraken private websocket connections.
     """
 
-    def __init__(self, get_websocket_token: Callable,
+    def __init__(self, get_websocket_token: Callable[[], Coroutine],
                  async_callback: Callable[[str], Coroutine],
                  socket: WebSocketClientProtocol):
         super().__init__(async_callback, socket)
@@ -178,15 +200,25 @@ class PrivateWebSocketApi(_WebSocketApi):
 
     async def unsubscribe(self, name: PrivateSubscription, pair: List[str] = None, **kwargs):
         token = await self.get_ws_token()
-        await super().unsubscribe(name, pair, token=token, **kwargs)
+        await super().unsubscribe(name, pair, token=token.data, **kwargs)
 
     async def subscribe_to_own_trades(self, **kwargs):
+        """
+        Own trades. On subscription last 50 trades for the user will be sent, followed by new
+        trades.
+        """
         await self.subscribe(PrivateSubscription.OWN_TRADES, **kwargs)
 
     async def unsubscribe_from_own_trades(self, **kwargs):
         await self.unsubscribe(PrivateSubscription.OWN_TRADES, **kwargs)
 
     async def subscribe_to_open_orders(self, **kwargs):
+        """
+        Open orders. Feed to show all the open orders belonging to the authenticated user.
+        Initial snapshot will provide list of all open orders and then any updates to the open
+        orders list will be sent. For status change updates, such as 'closed', the fields orderid
+        and status will be present in the payload.
+        """
         await self.subscribe(PrivateSubscription.OPEN_ORDERS, **kwargs)
 
     async def unsubscribe_from_open_orders(self, **kwargs):
@@ -194,12 +226,15 @@ class PrivateWebSocketApi(_WebSocketApi):
 
     async def add_order(self, order_type: str, pair: str, price: str, side: str, volume: str,
                         **kwargs):
+        """
+        Add new order.
+        """
         payload = {
             "event": "addOrder",
             "ordertype": order_type,
             "pair": pair,
             "price": price,
-            "token": await self.get_ws_token(),
+            "token": (await self.get_ws_token()).data,
             "type": side,
             "volume": volume,
             **kwargs
@@ -208,27 +243,60 @@ class PrivateWebSocketApi(_WebSocketApi):
         await self.send(payload)
 
     async def cancel_order(self, trade_ids: List[str]):
+        """
+        Cancel order or list of orders.
+
+        For every cancelOrder message, an update message 'closeOrderStatus' is sent. For multiple
+        orderid in cancelOrder, multiple update messages for 'closeOrderStatus' will be sent.
+
+        For example, if a cancelOrder request is sent for cancelling three orders [A, B, C],
+        then if two update messages for 'closeOrderStatus' are received along with an error such
+        as 'EOrder: Unknown order', then it would imply that the third order is not cancelled.
+        The error message could be different based on the condition which was not met by the
+        'cancelOrder' request.
+
+        :param trade_ids: A list of trade IDs for orders to cancel
+        """
         payload = {
             "event": "cancelOrder",
-            "token": await self.get_ws_token(),
+            "token": (await self.get_ws_token()).data,
             "txid": trade_ids
         }
 
         await self.send(payload)
 
     async def cancel_all(self):
+        """
+        Cancel all open orders. Includes partially-filled orders.
+        """
         payload = {
             "event": "cancelAll",
-            "token": await self.get_ws_token()
+            "token": (await self.get_ws_token()).data
         }
 
         await self.send(payload)
 
     async def cancel_all_orders_after(self, timeout: int):
+        """
+        cancel_all_orders_after provides a "Dead Man's Switch" mechanism to protect the client from
+        network malfunction, extreme latency or unexpected matching engine downtime. The client
+        can send a request with a timeout (in seconds), that will start a countdown timer which
+        will cancel *all* client orders when the timer expires. The client has to keep sending
+        new requests to push back the trigger time, or deactivate the mechanism by specifying a
+        timeout of 0. If the timer expires, all orders are cancelled and then the timer remains
+        disabled until the client provides a new (non-zero) timeout.
+
+        The recommended use is to make a call every 15 to 30 seconds, providing a timeout of 60
+        seconds. This allows the client to keep the orders in place in case of a brief
+        disconnection or transient delay, while keeping them safe in case of a network breakdown.
+        It is also recommended to disable the timer ahead of regularly scheduled trading engine
+        maintenance (if the timer is enabled, all orders will be cancelled when the trading
+        engine comes back from downtime - planned or otherwise).
+        """
         payload = {
             "event": "cancelAllOrdersAfter",
             "timeout": timeout,
-            "token": await self.get_ws_token()
+            "token": (await self.get_ws_token()).data
         }
 
         await self.send(payload)
