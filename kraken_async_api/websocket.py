@@ -17,18 +17,7 @@ class Event(Enum):
     PING = "ping"
 
 
-class Message(Enum):
-    pass
-
-
-class Subscription(Message):
-    pass
-
-
-SubscriptionType = TypeVar("SubscriptionType", bound=Subscription)
-
-
-class PublicMessage(Message):
+class Subscription(Enum):
     pass
 
 
@@ -40,16 +29,19 @@ class PublicSubscription(Subscription):
     BOOK = "book"
 
 
-class PrivateMessage(Message):
+class PrivateSubscription(Subscription):
+    OPEN_ORDERS = "openOrders"
+    OWN_TRADES = "ownTrades"
+
+
+SubscriptionType = TypeVar("SubscriptionType", bound=Subscription)
+
+
+class PrivateMessage(Enum):
     ADD_ORDER = "addOrder"
     CANCEL_ORDER = "cancelOrder"
     CANCEL_ALL = "cancelAll"
     CANCEL_ALL_ORDERS_AFTER = "cancelAllOrdersAfter"
-
-
-class PrivateSubscription(Subscription):
-    OPEN_ORDERS = "openOrders"
-    OWN_TRADES = "ownTrades"
 
 
 class _WebSocketApi(ABC):

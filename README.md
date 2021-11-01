@@ -1,6 +1,5 @@
-from kraken_async_api.constants import Depth# --- Under development ---
-
 # Kraken-async-api
+[![codecov](https://codecov.io/gh/nickjfenton/kraken-async-api/branch/master/graph/badge.svg?token=ZRHK1XGKDA)](https://codecov.io/gh/nickjfenton/kraken-async-api)
 
 A library for asynchronous communications with the Kraken cryptocurrency exchange.
 
@@ -23,7 +22,7 @@ async def main():
     kraken_exchange = await Kraken.connect(async_callback=print_, config=config)
 
     # ... your usage of the API here, for example:
-    kraken_exchange.public_websocket_api.subscribe_to_book(["XXBTZGBP"], Depth.D25)
+    kraken_exchange.public.subscribe_to_book(["XXBTZGBP"], Depth.D25)
 
 
 if __name__ == '__main__':

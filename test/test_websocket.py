@@ -336,3 +336,11 @@ class TestPrivateWebsocket(unittest.IsolatedAsyncioTestCase):
 
         with self.assertRaisesRegex(ConnectionError, expected_msg):
             await self.under_test.get_ws_token()
+
+    async def test_getting_token_does_not_fetch_a_new_token_unnecessarily(self):
+        # when
+        await self.under_test.get_ws_token()
+        await self.under_test.get_ws_token()
+
+        # then
+        self.get_ws_token.assert_awaited_once()

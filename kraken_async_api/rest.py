@@ -236,6 +236,9 @@ class PrivateRestApi(_RestApi):
 
         :param path: The endpoint to send the request to
         """
+        if self.config.api_key is None or self.config.api_sec is None:
+            raise ConnectionError("Complete config has not been provided."
+                                  " Please supply a Kraken API-KEY and API-SEC.")
         data = {"nonce": str(int(1000 * time.time()))}
         path = self.config.private_path + path
         headers = {Header.API_KEY: self.config.api_key,
