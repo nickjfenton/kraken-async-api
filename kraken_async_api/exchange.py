@@ -1,11 +1,8 @@
 """
 The entrypoint to the high level API.
 
-:class:`Kraken` manages token refreshing, and provides an API to send all
+:class:`Kraken` manages authentication and provides an API to send all
 public and private Websocket messages supported by the Kraken exchange.
-
-Messages received from the Kraken exchange are all sent back to a user provided
-asynchronous callback.
 """
 from typing import Callable, Coroutine, Any
 
@@ -23,43 +20,40 @@ class Kraken:
 
     This class should be instantiated using :meth:`Kraken.connect`.
 
-    Standard websockets usage is done through the methods of an instance
-    of :class:`Kraken`. For example: ::
+    Access to public and private websocket subscriptions are done through the
+    `Kraken.public` and `Kraken.private` attributes. Messages can be sent via
+    method calls, and messages received are passed to the client via asynchronous callbacks.
 
-    >>> async def my_callback(message):
-    ...     print(message)
-    ...
-    >>> kraken = await Kraken.connect(my_callback)
-    >>> kraken.
+    Access to public REST endpoints are done through `Kraken.public_rest`, which can
+    be used for one off querying of public exchange data. `Kraken.private_rest` can be
+    used for performing authentication. REST calls are executed asynchronously, and awaiting
+    their result will return the result of the REST call.
 
-    For lower level usage, groups of endpoints (based on whether they are REST or
-    Websockets, and based on whether they require authentication) can be accessed
-    through instance attributes:
-
-    - public_rest_api
-    - private_rest_api
-    - public_websocket_api
-    - private_websocket_api
-
+    It is recommended to prefer websockets for communicating with the exchange over
+    REST calls.
     """
+
     def __init__(self,
                  async_callback: Callable,
                  public_websocket: WebSocketClientProtocol,
                  private_websocket: WebSocketClientProtocol,
                  config: Config,
                  http_session: ClientSession = None) -> None:
-        self.http_session = http_session
+
+        self._http_session = http_session
         self.created_client_session = False
-        if self.http_session is None:
-            self.http_session = ClientSession()
+        if self._http_session is None:
+            # if no ClientSession is given to the instance, then open one and close it on
+            # Kraken.close()
+            self._http_session = ClientSession()
             self.created_client_session = True
 
-        self.public_rest_api = PublicRestApi(self.http_session, config)
-        self.private_rest_api = PrivateRestApi(self.http_session, config)
+        self.public_rest = PublicRestApi(self._http_session, config)
+        self.private_rest = PrivateRestApi(self._http_session, config)
 
-        self.public_websocket_api = PublicWebSocketApi(async_callback, public_websocket)
-        self.private_websocket_api = PrivateWebSocketApi(self.private_rest_api.get_ws_token,
-                                                         async_callback, private_websocket)
+        self.public = PublicWebSocketApi(async_callback, public_websocket)
+        self.private = PrivateWebSocketApi(self.private_rest.get_ws_token,
+                                           async_callback, private_websocket)
 
     @classmethod
     async def connect(cls,
@@ -91,7 +85,7 @@ class Kraken:
 
         :param async_callback: The new asynchronous callback for the websocket clients to use
         """
-        for socket in [self.public_websocket_api, self.private_websocket_api]:
+        for socket in [self.public, self.private]:
             socket.async_callback = async_callback
 
     async def close(self):
@@ -99,12 +93,12 @@ class Kraken:
         Handle gracefully closing the connection to the Kraken exchange.
         """
         if self.created_client_session:
-            await self.http_session.close()
+            await self._http_session.close()
 
-        if self.public_websocket_api.listening:
-            self.public_websocket_api.listening.cancel()
-        if self.private_websocket_api.listening:
-            self.private_websocket_api.listening.cancel()
+        if self.public.listening:
+            self.public.listening.cancel()
+        if self.private.listening:
+            self.private.listening.cancel()
 
-        await self.public_websocket_api.socket.close()
-        await self.private_websocket_api.socket.close()
+        await self.public.socket.close()
+        await self.private.socket.close()

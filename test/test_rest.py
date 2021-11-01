@@ -151,8 +151,14 @@ class TestPublicRestApi(unittest.IsolatedAsyncioTestCase):
 @patch(target="time.time", new=lambda: 5)
 class TestPrivateRest(unittest.IsolatedAsyncioTestCase):
 
+    # NOTE: The below tested methods were manually verified to work using an actual API-SEC and
+    # API-Key. On this basis, the unit tests were added afterwards with a fake api-sec and api-key
+    # and the resultant api-sign that was generated has been used in these tests to confirm that
+    # in the event of any refactor, given the same (fake) api-key, api-sec, and nonce, the calls
+    # should still generate the same api-sign as below.
+
     async def asyncSetUp(self) -> None:
-        self.client_session = ClientSession()
+        self.client_session = Mock(ClientSession)
         self.client_session.get = AsyncMock()
         self.client_session.post = AsyncMock()
         self.under_test = PrivateRestApi(self.client_session)
@@ -173,7 +179,8 @@ class TestPrivateRest(unittest.IsolatedAsyncioTestCase):
         await self.under_test.post_with_auth("Balance")
 
         self.check_post_call("bar/0/private/Balance",
-                             "3SwKsOrZPBX3YSG1Bkh6EWTPcE2UPFNsNBIx/j2PZnLYHpsbsNYciDNDnmmg6QAuw2uxAIYO8a7xjryWfXvEMA==")
+                             "3SwKsOrZPBX3YSG1Bkh6EWTPcE2UPFNsNBIx"
+                             "/j2PZnLYHpsbsNYciDNDnmmg6QAuw2uxAIYO8a7xjryWfXvEMA==")
 
     async def test_get_ws_token(self):
         await self.under_test.get_ws_token()
@@ -181,3 +188,23 @@ class TestPrivateRest(unittest.IsolatedAsyncioTestCase):
         self.check_post_call("https://api.kraken.com/0/private/GetWebSocketsToken",
                              "HB54iWkvRJhBAzVz6EzvWLllGfguM9wKlsG1gQj6WLvYTAlAoVY1s"
                              "I9RFBbXidaregrNOxys9MDqpa+5aATRlQ==")
+
+    async def test_error_raised_if_api_key_missing(self):
+        # given
+        self.under_test.config.api_key = None
+        error_msg = "Complete config has not been provided. Please supply a Kraken API-KEY and " \
+                    "API-SEC."
+
+        # when/then
+        with self.assertRaisesRegex(ConnectionError, error_msg):
+            await self.under_test.post_with_auth("/")
+
+    async def test_error_raised_if_api_sec_missing(self):
+        # given
+        self.under_test.config.api_sec = None
+        error_msg = "Complete config has not been provided. Please supply a Kraken API-KEY and " \
+                    "API-SEC."
+
+        # when/then
+        with self.assertRaisesRegex(ConnectionError, error_msg):
+            await self.under_test.post_with_auth("/")
