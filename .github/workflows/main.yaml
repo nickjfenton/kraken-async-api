@@ -22,7 +22,7 @@ jobs:
       - name: collect coverage
         run: |
           python -m pip install coverage
-          python -m coverage --run --branch -m unittest
+          python -m coverage run --branch -m unittest
           python -m coverage xml
       - name: upload coverage
         uses: codecov/codecov-action@v2
