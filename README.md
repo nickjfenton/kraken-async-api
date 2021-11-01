@@ -1,6 +1,5 @@
-# --- Under development ---
-
 # Kraken-async-api
+[![codecov](https://codecov.io/gh/nickjfenton/kraken-async-api/branch/master/graph/badge.svg?token=ZRHK1XGKDA)](https://codecov.io/gh/nickjfenton/kraken-async-api)
 
 A library for asynchronous communications with the Kraken cryptocurrency exchange.
 
