@@ -10,16 +10,15 @@ import hashlib
 import hmac
 import time
 import urllib
-from dataclasses import dataclass
-from enum import Enum
 from typing import List, Optional, Union
 
 from aiohttp import ClientSession
 
 from kraken_async_api.config import Config
+from kraken_async_api.constants import Interval, Header, AssetClass, InfoType
 
 
-class RestApi:
+class _RestApi:
     def __init__(self, http_session: ClientSession, config: Optional[Config] = None):
         self.http_session = http_session
         self.config = config or Config()
@@ -44,43 +43,11 @@ class RestApi:
         :param kwargs: keyword arguments passed to the ClientSession
         :return: The result of the post call
         """
-        return await self.http_session.post(self.config.rest_url + path, **kwargs)
+        res = await self.http_session.post(self.config.rest_url + path, **kwargs)
+        return await res.read()
 
 
-class Interval(Enum):
-    """
-    OHLC interval parameter options when calling :py:meth:`PublicRestApi.get_ohlc_data`
-
-    Intervals are given in minutes.
-    """
-    I1 = 1
-    I5 = 5
-    I15 = 15
-    I30 = 30
-    I60 = 60
-    I240 = 240
-    I1440 = 1440
-    I10080 = 10080
-    I21600 = 21600
-
-
-class InfoType(Enum):
-    """
-    Options for the 'info' parameter when calling
-    :meth:`PublicRestApi.get_asset_pairs`
-    """
-    INFO = "info"
-    LEVERAGE = "leverage"
-    FEES = "fees"
-    MARGIN = "margin"
-
-
-class AssetClass(Enum):
-    """Asset classes"""
-    CURRENCY = "currency"
-
-
-class PublicRestApi(RestApi):
+class PublicRestApi(_RestApi):
     """
     All the publicly available endpoints according to the `Kraken specification`_
 
@@ -236,7 +203,7 @@ class PublicRestApi(RestApi):
         return await self.get_public_endpoint(path)
 
 
-class PrivateRestApi(RestApi):
+class PrivateRestApi(_RestApi):
     """
     All the privately available endpoints according to the `Kraken specification`_
 
@@ -274,9 +241,3 @@ class PrivateRestApi(RestApi):
         headers = {Header.API_KEY: self.config.api_key,
                    Header.API_SIGN: await self._get_signature(path, data)}
         return await super().post(path, data=data, headers=headers, **kwargs)
-
-
-@dataclass
-class Header:
-    API_KEY = "API-KEY"
-    API_SIGN = "API-Sign"
