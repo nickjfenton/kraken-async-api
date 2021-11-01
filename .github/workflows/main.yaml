@@ -8,12 +8,17 @@ on:
     branches: [ master ]
 
 jobs:
-  lint:
+  test:
     runs-on: ubuntu-latest
     steps:
-      - run: |
-          python -m pip install pylint
-          pylint kraken_async_api
+      - run: python -m unittest
+
+#  lint:
+#    runs-on: ubuntu-latest
+#    steps:
+#      - run: |
+#          python -m pip install pylint
+#          python -m pylint kraken_async_api
 #  test:
 #    runs-on: ubuntu-latest
 #    steps:
