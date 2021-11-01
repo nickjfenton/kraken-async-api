@@ -8,21 +8,23 @@ on:
     branches: [ master ]
 
 jobs:
-  test:
+  build:
     runs-on: ubuntu-latest
     steps:
-      - run: python -m unittest
-
-#  lint:
-#    runs-on: ubuntu-latest
-#    steps:
-#      - run: |
-#          python -m pip install pylint
-#          python -m pylint kraken_async_api
-#  test:
-#    runs-on: ubuntu-latest
-#    steps:
-#      - run: |
-#          python -m pip install coverage
-#          python -m coverage --run --branch -m unittest
-#          python -m coverage report
+      - name: run unit tests
+        run: python -m unittest
+      - name: Check out repository code
+        uses: actions/checkout@v2
+      - name: lint
+        run: |
+          python -m pip install pylint
+          python -m pylint kraken_async_api
+      - name: collect coverage
+        run: |
+          python -m pip install coverage
+          python -m coverage --run --branch -m unittest
+          python -m coverage xml
+      - name: upload coverage
+        uses: codecov/codecov-action@v2
+        with:
+          fail_ci_if_error: true
