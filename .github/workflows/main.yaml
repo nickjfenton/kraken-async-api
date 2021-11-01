@@ -11,17 +11,19 @@ jobs:
   build:
     runs-on: ubuntu-latest
     steps:
-      - name: run unit tests
-        run: python -m unittest
       - name: Check out repository code
         uses: actions/checkout@v2
+      - name: install requirements
+        run: |
+          python -m pip install pipenv
+          pipenv install
+      - name: run unit tests
+        run: python -m unittest
       - name: lint
         run: |
-          python -m pip install pylint
           python -m pylint --fail-under 8 kraken_async_api
       - name: collect coverage
         run: |
-          python -m pip install coverage
           python -m coverage run --branch -m unittest
           python -m coverage xml
       - name: upload coverage
